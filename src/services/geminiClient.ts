@@ -8,7 +8,7 @@ import type {
 import { buildPassLineMessage, calculatePassTargetCount, dedupeTopics } from '../utils/parser';
 
 const GEMINI_ENDPOINT =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent';
 
 export type GeminiErrorKind = 'missing_key' | 'invalid_key' | 'rate_limit' | 'network' | 'parse' | 'unknown';
 
