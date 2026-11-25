@@ -41,7 +41,7 @@ export const AI_PROVIDERS: Record<AiProvider, ProviderMeta> = {
     shortName: 'Groq',
     helpText: 'Get free key from console.groq.com',
     helpUrl: 'https://console.groq.com/keys',
-    endpoint: 'https://api.groq.com/openai/v1/chat/completions',
+    endpoint: "https://api.groq.com/openai/v1/chat/completions",
     model: "openai/gpt-oss-120b",
   },
   openai: {
