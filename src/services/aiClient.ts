@@ -42,7 +42,7 @@ export const AI_PROVIDERS: Record<AiProvider, ProviderMeta> = {
     helpText: 'Get free key from console.groq.com',
     helpUrl: 'https://console.groq.com/keys',
     endpoint: 'https://api.groq.com/openai/v1/chat/completions',
-    model: 'llama-3.3-70b-versatile',
+    model: "openai/gpt-oss-120b",
   },
   openai: {
     id: 'openai',
