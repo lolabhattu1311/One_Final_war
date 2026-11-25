@@ -146,7 +146,7 @@ export function ExamKitView({
                 onClick={onOpenApiModal}
                 className="min-h-[40px] px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-medium text-white transition-colors whitespace-nowrap"
               >
-                Update API Key
+                Open Add API
               </button>
             )}
           </div>

@@ -10,9 +10,9 @@ import {
 } from './parser';
 
 test('maskApiKey reveals only last 4 characters and hides prefix', () => {
-  assert.equal(maskApiKey('AIzaSyFakeKey9876Ab12'), '••••••••...Ab12');
-  assert.equal(maskApiKey('  12345678  '), '••••••••...5678');
-  assert.equal(maskApiKey('abc'), '••••••••...••••');
+  assert.equal(maskApiKey('AIzaSyFakeKey9876Ab12'), '••••...Ab12');
+  assert.equal(maskApiKey('  12345678  '), '••••...5678');
+  assert.equal(maskApiKey('abc'), '••••...••••');
   assert.equal(maskApiKey(''), '');
 });
 

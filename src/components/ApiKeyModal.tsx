@@ -1,32 +1,45 @@
 import { useEffect, useRef, useState } from 'react';
-import { ExternalLink, KeyRound, ShieldCheck, X } from 'lucide-react';
+import { ChevronDown, ExternalLink, KeyRound, ShieldCheck, X } from 'lucide-react';
+import {
+  AI_PROVIDERS,
+  AI_PROVIDER_LIST,
+  type AiConfig,
+  type AiProvider,
+} from '../services/aiClient';
 import { maskApiKey } from '../utils/parser';
 
 interface ApiKeyModalProps {
   isOpen: boolean;
-  savedApiKey: string;
+  savedConfig: AiConfig | null;
   onClose: () => void;
-  onSaveKey: (newKey: string) => void;
-  onRemoveKey: () => void;
+  onSaveConfig: (config: AiConfig) => void;
+  onRemoveConfig: () => void;
 }
 
 export function ApiKeyModal({
   isOpen,
-  savedApiKey,
+  savedConfig,
   onClose,
-  onSaveKey,
-  onRemoveKey,
+  onSaveConfig,
+  onRemoveConfig,
 }: ApiKeyModalProps) {
+  const [selectedProvider, setSelectedProvider] = useState<AiProvider>('gemini');
   const [inputKey, setInputKey] = useState('');
   const [error, setError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const hasSavedKey = Boolean(savedApiKey.trim());
-  const maskedDisplay = hasSavedKey ? maskApiKey(savedApiKey) : '';
+  const hasSavedConfig = Boolean(savedConfig?.apiKey?.trim());
+  const maskedDisplay = hasSavedConfig && savedConfig ? maskApiKey(savedConfig.apiKey) : '';
+  const savedProviderMeta = savedConfig ? AI_PROVIDERS[savedConfig.provider] : null;
+  const activeMeta = AI_PROVIDERS[selectedProvider];
+  const isSwitchingProvider = Boolean(
+    hasSavedConfig && savedConfig && selectedProvider !== savedConfig.provider,
+  );
 
   useEffect(() => {
     if (isOpen) {
       // Strictly never pre-fill the saved key
+      setSelectedProvider(savedConfig?.provider ?? 'gemini');
       setInputKey('');
       setError('');
       const timer = window.setTimeout(() => {
@@ -34,7 +47,7 @@ export function ApiKeyModal({
       }, 40);
       return () => window.clearTimeout(timer);
     }
-  }, [isOpen]);
+  }, [isOpen, savedConfig]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -49,36 +62,32 @@ export function ApiKeyModal({
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const validateAndSave = (requireKey: boolean) => {
     const cleaned = inputKey.trim();
 
-    if (hasSavedKey && !cleaned) {
-      // Leaving input empty when already connected keeps existing key
+    if (hasSavedConfig && !isSwitchingProvider && !cleaned && !requireKey) {
       onClose();
       return;
     }
 
-    if (cleaned.length < 10) {
-      setError('Please enter a valid Gemini API key before saving.');
-      return;
-    }
-
-    setInputKey('');
-    setError('');
-    onSaveKey(cleaned);
-  };
-
-  const handleReplaceClick = () => {
-    const cleaned = inputKey.trim();
-    if (cleaned.length < 10) {
-      setError('Enter a new Gemini API key to replace the existing key.');
+    if (cleaned.length < 8) {
+      setError(
+        isSwitchingProvider
+          ? `Enter your ${activeMeta.shortName} API key to switch provider.`
+          : `Please enter a valid ${activeMeta.shortName} API key before saving.`,
+      );
       inputRef.current?.focus();
       return;
     }
+
     setInputKey('');
     setError('');
-    onSaveKey(cleaned);
+    onSaveConfig({ provider: selectedProvider, apiKey: cleaned });
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    validateAndSave(isSwitchingProvider || !hasSavedConfig);
   };
 
   return (
@@ -111,28 +120,68 @@ export function ApiKeyModal({
           </button>
         </div>
 
-        {hasSavedKey ? (
-          <div className="mb-5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 px-4 py-3 flex items-center gap-2.5">
+        {hasSavedConfig && savedProviderMeta ? (
+          <div className="mb-4 rounded-xl bg-emerald-500/10 border border-emerald-500/25 px-4 py-3 flex items-center gap-2.5">
             <ShieldCheck className="h-4 w-4 text-emerald-400 shrink-0" />
             <p className="text-sm text-emerald-200 font-medium break-all">
-              Brain is already connected - <span className="font-mono">{maskedDisplay}</span>
+              Brain is already connected ({savedProviderMeta.label}) -{' '}
+              <span className="font-mono">{maskedDisplay}</span>
             </p>
           </div>
         ) : (
-          <p className="text-sm leading-relaxed text-zinc-400 mb-5">
-            Enter your Gemini API Key. This key becomes the brain for this application. All
-            roadmaps, blueprints and kits will be generated using your key.
+          <p className="text-sm leading-relaxed text-zinc-400 mb-4">
+            Choose an AI provider and enter your API Key. This key becomes the brain for this
+            application. All roadmaps, blueprints and kits will be generated using your key.
           </p>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Provider Dropdown */}
           <div>
-            <label htmlFor="gemini-api-key-input" className="sr-only">
-              Gemini API Key
+            <label
+              htmlFor="ai-provider-select"
+              className="block text-xs font-medium text-zinc-400 mb-1.5"
+            >
+              AI Provider
+            </label>
+            <div className="relative">
+              <select
+                id="ai-provider-select"
+                value={selectedProvider}
+                onChange={(e) => {
+                  setSelectedProvider(e.target.value as AiProvider);
+                  setError('');
+                }}
+                className="w-full min-h-[46px] appearance-none rounded-xl bg-[#0d0d10] border border-white/[0.12] pl-4 pr-10 py-3 text-sm text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors cursor-pointer"
+              >
+                {AI_PROVIDER_LIST.map((provider) => (
+                  <option
+                    key={provider.id}
+                    value={provider.id}
+                    className="bg-[#16161a] text-zinc-100"
+                  >
+                    {provider.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                aria-hidden="true"
+                className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400"
+              />
+            </div>
+          </div>
+
+          {/* Masked Password API Key Input */}
+          <div>
+            <label
+              htmlFor="ai-api-key-input"
+              className="block text-xs font-medium text-zinc-400 mb-1.5"
+            >
+              API Key
             </label>
             <input
               ref={inputRef}
-              id="gemini-api-key-input"
+              id="ai-api-key-input"
               type="password"
               value={inputKey}
               onChange={(e) => {
@@ -142,9 +191,9 @@ export function ApiKeyModal({
               autoComplete="off"
               spellCheck={false}
               placeholder={
-                hasSavedKey
+                hasSavedConfig && !isSwitchingProvider
                   ? 'Enter new key to replace, or leave empty to keep old key'
-                  : 'Paste your Gemini API Key here'
+                  : `Paste your ${activeMeta.shortName} API Key here`
               }
               className="w-full min-h-[46px] rounded-xl bg-[#0d0d10] border border-white/[0.12] px-4 py-3 text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
             />
@@ -155,19 +204,20 @@ export function ApiKeyModal({
             )}
           </div>
 
+          {/* Dynamic Provider Help Text */}
           <div className="flex items-center justify-between text-xs">
             <a
-              href="https://aistudio.google.com/apikey"
+              href={activeMeta.helpUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 text-blue-400 hover:text-blue-300 underline-offset-4 hover:underline"
             >
-              <span>Get key from aistudio.google.com</span>
-              <ExternalLink className="h-3 w-3" />
+              <span>{activeMeta.helpText}</span>
+              <ExternalLink className="h-3 w-3 shrink-0" />
             </a>
           </div>
 
-          {hasSavedKey ? (
+          {hasSavedConfig ? (
             <div className="pt-2 grid grid-cols-2 gap-2.5">
               <button
                 type="button"
@@ -178,16 +228,16 @@ export function ApiKeyModal({
               </button>
               <button
                 type="button"
-                onClick={handleReplaceClick}
+                onClick={() => validateAndSave(true)}
                 className="min-h-[42px] px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-sm font-medium text-white transition-colors whitespace-nowrap"
               >
-                Replace Key
+                {isSwitchingProvider ? 'Save & Connect' : 'Replace Key'}
               </button>
               <button
                 type="button"
                 onClick={() => {
                   setInputKey('');
-                  onRemoveKey();
+                  onRemoveConfig();
                 }}
                 className="min-h-[42px] px-3.5 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/25 text-sm font-medium text-rose-300 transition-colors whitespace-nowrap"
               >

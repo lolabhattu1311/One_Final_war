@@ -9,10 +9,12 @@ import { BlueprintCard } from './components/BlueprintCard';
 import { ExamKitView } from './components/ExamKitView';
 import { MediaGallery } from './components/MediaGallery';
 import {
-  GeminiClientError,
+  AiClientError,
+  BUSY_PROVIDER_MESSAGE,
   generateRoadmapAndBlueprint,
   generateTopicExamKit,
-} from './services/geminiClient';
+  type AiConfig,
+} from './services/aiClient';
 import type {
   AppView,
   SavedDiagram,
@@ -23,12 +25,12 @@ import type {
 import { buildDiagramSvg } from './utils/diagramRenderer';
 import { parseSubjectAndTopics } from './utils/parser';
 import {
-  clearApiKey,
-  loadApiKey,
+  clearAiConfig,
+  loadAiConfig,
   loadSavedDiagrams,
   loadSession,
   loadTheme,
-  saveApiKey,
+  saveAiConfig,
   saveDiagrams,
   saveSession,
   saveTheme,
@@ -71,7 +73,7 @@ async function readAttachmentFile(file: File): Promise<UploadedAttachment> {
 }
 
 export default function App() {
-  const [apiKey, setApiKey] = useState<string>(() => loadApiKey());
+  const [aiConfig, setAiConfig] = useState<AiConfig | null>(() => loadAiConfig());
   const [theme, setTheme] = useState<string>(() => loadTheme());
   const [session, setSession] = useState<StudySession | null>(() => loadSession());
   const [savedDiagrams, setSavedDiagrams] = useState<SavedDiagram[]>(() =>
@@ -89,11 +91,11 @@ export default function App() {
 
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
   const [planError, setPlanError] = useState('');
-  const [planErrorInvalidKey, setPlanErrorInvalidKey] = useState(false);
+  const [planErrorActionable, setPlanErrorActionable] = useState(false);
 
   const [loadingTopic, setLoadingTopic] = useState<string | null>(null);
   const [topicError, setTopicError] = useState('');
-  const [topicErrorInvalidKey, setTopicErrorInvalidKey] = useState(false);
+  const [topicErrorActionable, setTopicErrorActionable] = useState(false);
 
   const [isSidebarOpenMobile, setIsSidebarOpenMobile] = useState(false);
   const [isApiModalOpen, setIsApiModalOpen] = useState(false);
@@ -117,14 +119,16 @@ export default function App() {
     return new Set(Object.keys(session?.examKits ?? {}));
   }, [session]);
 
-  const handleSaveApiKey = useCallback((newKey: string) => {
-    saveApiKey(newKey);
-    setApiKey(newKey);
+  const hasConnectedApi = Boolean(aiConfig?.apiKey?.trim());
+
+  const handleSaveAiConfig = useCallback((nextConfig: AiConfig) => {
+    saveAiConfig(nextConfig);
+    setAiConfig(nextConfig);
     setIsApiModalOpen(false);
     setPlanError('');
-    setPlanErrorInvalidKey(false);
+    setPlanErrorActionable(false);
     setTopicError('');
-    setTopicErrorInvalidKey(false);
+    setTopicErrorActionable(false);
 
     if (connectTimerRef.current !== null) {
       window.clearTimeout(connectTimerRef.current);
@@ -136,9 +140,9 @@ export default function App() {
     }, 3000);
   }, []);
 
-  const handleRemoveApiKey = useCallback(() => {
-    clearApiKey();
-    setApiKey('');
+  const handleRemoveAiConfig = useCallback(() => {
+    clearAiConfig();
+    setAiConfig(null);
     setJustConnected(false);
     if (connectTimerRef.current !== null) {
       window.clearTimeout(connectTimerRef.current);
@@ -176,14 +180,28 @@ export default function App() {
     setAttachments([]);
     setValidationError('');
     setPlanError('');
-    setPlanErrorInvalidKey(false);
+    setPlanErrorActionable(false);
     setTopicError('');
-    setTopicErrorInvalidKey(false);
+    setTopicErrorActionable(false);
     setActiveView('welcome');
   }, []);
 
   const autoSaveDiagram = useCallback(
-    (subjectName: string, topicName: string, kitDiagram: { title: string; caption: string; nodes: Array<{ id: string; label: string; sublabel?: string; kind?: 'start' | 'process' | 'decision' | 'io' | 'end' }>; edges: Array<{ from: string; to: string; label?: string }> }) => {
+    (
+      subjectName: string,
+      topicName: string,
+      kitDiagram: {
+        title: string;
+        caption: string;
+        nodes: Array<{
+          id: string;
+          label: string;
+          sublabel?: string;
+          kind?: 'start' | 'process' | 'decision' | 'io' | 'end';
+        }>;
+        edges: Array<{ from: string; to: string; label?: string }>;
+      },
+    ) => {
       const svgMarkup = buildDiagramSvg(kitDiagram);
       const diagramId = `${subjectName.toLowerCase().trim()}::${topicName.toLowerCase().trim()}`;
       const nextItem: SavedDiagram = {
@@ -219,22 +237,21 @@ export default function App() {
       return;
     }
 
-    if (!apiKey.trim()) {
+    if (!aiConfig || !aiConfig.apiKey.trim()) {
       setValidationError('');
       setPlanError(
-        'Connect your Gemini API key first using "Add API" in the sidebar to generate your 1-night plan.',
+        'Connect an AI provider first using "Add API" in the sidebar to generate your 1-night plan.',
       );
-      setPlanErrorInvalidKey(true);
+      setPlanErrorActionable(true);
       setIsApiModalOpen(true);
       return;
     }
 
     setValidationError('');
     setPlanError('');
-    setPlanErrorInvalidKey(false);
+    setPlanErrorActionable(false);
     setIsGeneratingPlan(true);
 
-    // Immediately show parsed topics in sidebar while Gemini builds the full plan
     const optimisticSubject = parsed.subject || 'Analyzing Syllabus...';
     const optimisticTopics = parsed.topics;
     if (optimisticTopics.length > 0) {
@@ -259,7 +276,7 @@ export default function App() {
 
     try {
       const result = await generateRoadmapAndBlueprint({
-        apiKey,
+        config: aiConfig,
         subject: parsed.subject,
         topics: parsed.topics,
         rawPrompt: trimmed || 'Extract subject and exam topics from the attached files.',
@@ -283,14 +300,13 @@ export default function App() {
       setAttachments([]);
       setActiveView('overview');
     } catch (err) {
-      if (err instanceof GeminiClientError) {
+      if (err instanceof AiClientError) {
         setPlanError(err.message);
-        setPlanErrorInvalidKey(err.kind === 'invalid_key' || err.kind === 'missing_key');
+        setPlanErrorActionable(true);
       } else {
-        setPlanError('Something went wrong while generating your plan. Please try again.');
-        setPlanErrorInvalidKey(false);
+        setPlanError(BUSY_PROVIDER_MESSAGE);
+        setPlanErrorActionable(true);
       }
-      // Clear optimistic placeholder if no real roadmap was previously loaded
       setSession((prev) => {
         if (prev && prev.roadmap.timeline.length === 0) {
           return null;
@@ -300,7 +316,7 @@ export default function App() {
     } finally {
       setIsGeneratingPlan(false);
     }
-  }, [apiKey, attachments, promptInput, theme]);
+  }, [aiConfig, attachments, promptInput, theme]);
 
   const loadOrGenerateExamKit = useCallback(
     async (topicName: string, forceRegenerate = false) => {
@@ -308,7 +324,7 @@ export default function App() {
       setSelectedTopic(topicName);
       setActiveView('topic');
       setTopicError('');
-      setTopicErrorInvalidKey(false);
+      setTopicErrorActionable(false);
 
       const existing = session.examKits[topicName];
       if (existing && !forceRegenerate) {
@@ -316,18 +332,18 @@ export default function App() {
         return;
       }
 
-      if (!apiKey.trim()) {
+      if (!aiConfig || !aiConfig.apiKey.trim()) {
         setTopicError(
-          'Connect your Gemini API key via "Add API" to generate the Exam Kit for this topic.',
+          'Connect an AI provider via "Add API" to generate the Exam Kit for this topic.',
         );
-        setTopicErrorInvalidKey(true);
+        setTopicErrorActionable(true);
         return;
       }
 
       setLoadingTopic(topicName);
       try {
         const kit = await generateTopicExamKit({
-          apiKey,
+          config: aiConfig,
           subject: session.subject,
           topic: topicName,
           allTopics: session.topics,
@@ -349,18 +365,18 @@ export default function App() {
 
         autoSaveDiagram(session.subject, topicName, kit.diagram);
       } catch (err) {
-        if (err instanceof GeminiClientError) {
+        if (err instanceof AiClientError) {
           setTopicError(err.message);
-          setTopicErrorInvalidKey(err.kind === 'invalid_key' || err.kind === 'missing_key');
+          setTopicErrorActionable(true);
         } else {
-          setTopicError('Failed to generate Exam Kit for this topic. Please try again.');
-          setTopicErrorInvalidKey(false);
+          setTopicError(BUSY_PROVIDER_MESSAGE);
+          setTopicErrorActionable(true);
         }
       } finally {
         setLoadingTopic(null);
       }
     },
-    [apiKey, autoSaveDiagram, session, theme],
+    [aiConfig, autoSaveDiagram, session, theme],
   );
 
   const handleDeleteDiagram = useCallback((id: string) => {
@@ -387,7 +403,7 @@ export default function App() {
         selectedTopic={selectedTopic}
         generatedTopicSet={generatedTopicSet}
         savedDiagramCount={savedDiagrams.length}
-        hasApiKey={Boolean(apiKey.trim())}
+        hasApiKey={hasConnectedApi}
         justConnected={justConnected}
         onNewChat={handleNewChat}
         onOpenMedia={() => setActiveView('media')}
@@ -423,14 +439,14 @@ export default function App() {
           <button
             type="button"
             onClick={() => setIsApiModalOpen(true)}
-            aria-label={apiKey.trim() ? 'Add API - Brain Connected' : 'Add API'}
+            aria-label={hasConnectedApi ? 'Add API - Brain Connected' : 'Add API'}
             className="min-h-[40px] px-3 rounded-lg bg-white/[0.06] text-xs font-medium text-zinc-200 inline-flex items-center gap-2 whitespace-nowrap shrink-0"
           >
             <span>{justConnected ? 'Brain Connected' : 'Add API'}</span>
             <span
               aria-hidden="true"
               className={`h-2 w-2 rounded-full ${
-                apiKey.trim() ? 'bg-emerald-500' : 'bg-zinc-500'
+                hasConnectedApi ? 'bg-emerald-500' : 'bg-zinc-500'
               }`}
             />
           </button>
@@ -453,7 +469,7 @@ export default function App() {
                 kit={activeExamKit}
                 isLoading={loadingTopic === selectedTopic}
                 error={topicError}
-                isInvalidKeyError={topicErrorInvalidKey}
+                isInvalidKeyError={topicErrorActionable}
                 onBackToOverview={() => {
                   setSelectedTopic(null);
                   setActiveView('overview');
@@ -499,13 +515,13 @@ export default function App() {
                       <AlertCircle className="h-4 w-4 text-rose-400 shrink-0" />
                       <span>{planError}</span>
                     </span>
-                    {planErrorInvalidKey && (
+                    {planErrorActionable && (
                       <button
                         type="button"
                         onClick={() => setIsApiModalOpen(true)}
                         className="min-h-[36px] px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-medium text-white whitespace-nowrap"
                       >
-                        Update API Key
+                        Open Add API
                       </button>
                     )}
                   </div>
@@ -592,13 +608,13 @@ export default function App() {
                       <AlertCircle className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
                       <span>{planError}</span>
                     </span>
-                    {planErrorInvalidKey && (
+                    {planErrorActionable && (
                       <button
                         type="button"
                         onClick={() => setIsApiModalOpen(true)}
                         className="min-h-[36px] px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-medium text-white whitespace-nowrap"
                       >
-                        Connect API Key
+                        Open Add API
                       </button>
                     )}
                   </div>
@@ -609,13 +625,13 @@ export default function App() {
         </main>
       </div>
 
-      {/* Centered API Key Popup */}
+      {/* Centered Multi-Provider API Key Popup */}
       <ApiKeyModal
         isOpen={isApiModalOpen}
-        savedApiKey={apiKey}
+        savedConfig={aiConfig}
         onClose={() => setIsApiModalOpen(false)}
-        onSaveKey={handleSaveApiKey}
-        onRemoveKey={handleRemoveApiKey}
+        onSaveConfig={handleSaveAiConfig}
+        onRemoveConfig={handleRemoveAiConfig}
       />
 
       {/* Centered Theme Modal */}

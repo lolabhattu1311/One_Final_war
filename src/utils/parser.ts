@@ -14,10 +14,10 @@ export function maskApiKey(key: string): string {
   const trimmed = key.trim();
   if (!trimmed) return '';
   if (trimmed.length <= 4) {
-    return '••••••••...••••';
+    return '••••...••••';
   }
   const last4 = trimmed.slice(-4);
-  return `••••••••...${last4}`;
+  return `••••...${last4}`;
 }
 
 /**

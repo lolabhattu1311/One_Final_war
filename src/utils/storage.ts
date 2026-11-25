@@ -1,7 +1,10 @@
+import type { AiConfig } from '../services/aiClient';
+import { isValidProvider } from '../services/aiClient';
 import type { SavedDiagram, StudySession } from '../types/study';
 
 const STORAGE_KEYS = {
-  API_KEY: 'night_before_gemini_key_v1',
+  AI_CONFIG: 'night_before_ai_config_v1',
+  LEGACY_API_KEY: 'night_before_gemini_key_v1',
   SESSION: 'night_before_session_v1',
   MEDIA: 'night_before_media_v1',
   THEME: 'night_before_theme_v1',
@@ -31,16 +34,45 @@ function safeRemove(key: string): void {
   }
 }
 
-export function loadApiKey(): string {
-  return safeGet(STORAGE_KEYS.API_KEY) ?? '';
+export function loadAiConfig(): AiConfig | null {
+  const raw = safeGet(STORAGE_KEYS.AI_CONFIG);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as Partial<AiConfig>;
+      if (
+        parsed &&
+        isValidProvider(parsed.provider) &&
+        typeof parsed.apiKey === 'string' &&
+        parsed.apiKey.trim().length > 0
+      ) {
+        return { provider: parsed.provider, apiKey: parsed.apiKey.trim() };
+      }
+    } catch {
+      // Ignore malformed stored JSON
+    }
+  }
+
+  // Graceful fallback migration from legacy single-key storage
+  const legacyKey = safeGet(STORAGE_KEYS.LEGACY_API_KEY)?.trim();
+  if (legacyKey) {
+    return { provider: 'gemini', apiKey: legacyKey };
+  }
+
+  return null;
 }
 
-export function saveApiKey(key: string): void {
-  safeSet(STORAGE_KEYS.API_KEY, key.trim());
+export function saveAiConfig(config: AiConfig): void {
+  const normalized: AiConfig = {
+    provider: config.provider,
+    apiKey: config.apiKey.trim(),
+  };
+  safeSet(STORAGE_KEYS.AI_CONFIG, JSON.stringify(normalized));
+  safeRemove(STORAGE_KEYS.LEGACY_API_KEY);
 }
 
-export function clearApiKey(): void {
-  safeRemove(STORAGE_KEYS.API_KEY);
+export function clearAiConfig(): void {
+  safeRemove(STORAGE_KEYS.AI_CONFIG);
+  safeRemove(STORAGE_KEYS.LEGACY_API_KEY);
 }
 
 export function loadTheme(): string {
