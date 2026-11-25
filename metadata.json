@@ -1,0 +1,6 @@
+{
+  "name": "Night Before",
+  "description": "Night Before - Lets prepare for tomorrow's war. Enter your BTech subject and topics to generate a 1-night roadmap, exam blueprint, and exam kits.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
